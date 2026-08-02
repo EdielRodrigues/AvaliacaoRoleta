@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Passadoria Ediel & Jéssica</title>
+  <link rel="manifest" href="./manifest.json?v=13" />
+  <meta name="theme-color" content="#facc15" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Passadoria" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <link rel="stylesheet" href="style.css?v=17" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand-wrap">
+      <div class="brand-logo" aria-label="Logo Passadoria">E&amp;J</div>
+      <div>
+        <h1>Passadoria Ediel &amp; Jéssica</h1>
+        <p>Agendamento, promoções e avaliações em um só lugar.</p>
+      </div>
+    </div>
+    <button id="btnAbrirAdmin" class="admin-topo">ADM</button>
+  </header>
+
+  <nav class="site-nav" aria-label="Navegação principal">
+    <a href="#inicio">Início</a>
+    <a href="#agenda">Agenda</a>
+    <a href="#roleta">Roleta</a>
+    <a href="#avaliacoes">Avaliações</a>
+  </nav>
+
+  <section id="inicio" class="hero-passadoria">
+    <div class="hero-overlay">
+      <span class="hero-selo">✨ Atendimento com carinho</span>
+      <h2>Suas roupas bem cuidadas, passadas e organizadas</h2>
+      <p>Escolha um dia disponível na agenda, faça sua reserva e depois aproveite a roda de descontos.</p>
+      <a class="btn-hero" href="#agenda">AGENDAR AGORA</a>
+    </div>
+  </section>
+
+  <section id="agenda" class="agenda-section">
+    <div class="agenda-cabecalho">
+      <div>
+        <span class="section-kicker">AGENDA DA PASSADORIA</span>
+        <h2>Escolha o dia da sua reserva</h2>
+        <p>Cada dia aceita até 4 clientes. Toque em uma data com vaga, informe seu nome e telefone e confirme a reserva.</p>
+      </div>
+      <div class="agenda-controles">
+        <button id="mesAnterior" class="btn-mes" type="button" aria-label="Mês anterior">‹</button>
+        <strong id="tituloMesAgenda">Carregando...</strong>
+        <button id="mesSeguinte" class="btn-mes" type="button" aria-label="Próximo mês">›</button>
+      </div>
+    </div>
+    <div class="agenda-legenda">
+      <span><i class="legenda-cor livre"></i> 4 vagas</span>
+      <span><i class="legenda-cor parcial"></i> Algumas vagas</span>
+      <span><i class="legenda-cor ocupado"></i> Lotado</span>
+      <span><i class="legenda-cor passado"></i> Indisponível</span>
+    </div>
+    <div class="dias-semana" aria-hidden="true">
+      <span>DOM</span><span>SEG</span><span>TER</span><span>QUA</span><span>QUI</span><span>SEX</span><span>SÁB</span>
+    </div>
+    <div id="gradeAgenda" class="grade-agenda"><p>Carregando agenda...</p></div>
+    <p id="statusAgenda" class="status-agenda"></p>
+
+    <div class="consulta-agenda">
+      <div>
+        <strong>🔎 Consultar meu agendamento</strong>
+        <small>Digite o mesmo telefone usado na reserva.</small>
+      </div>
+      <div class="consulta-agenda-campos">
+        <input id="consultarAgendaTelefone" type="tel" inputmode="numeric" placeholder="Telefone com DDD" />
+        <button id="btnConsultarAgenda" type="button" class="btn secundario">CONSULTAR</button>
+      </div>
+    </div>
+    <div id="meuAgendamentoPainel" class="meu-agendamento-painel hidden"></div>
+  </section>
+
+  <header class="topo" id="roleta">
+    <h1>🎁 Roda da Sorte</h1>
+    <p>Gire a roda, ganhe sua porcentagem de desconto e deixe sua avaliação.</p>
+    <p class="id-box">ID pelo telefone: <strong id="visitanteId">Digite seu telefone</strong></p>
+  </header>
+
+  <main class="container" id="avaliacoes">
+    <section class="card sorteio">
+      <div class="views-publicas">👁️ Total de visitas no site: <strong id="totalVisitasSite">0</strong><br><span>Visitas nesta promoção: <strong id="totalVisitasPromocao">0</strong></span></div>
+      <h2>Gire para ganhar desconto</h2>
+      <div class="wheel-wrap">
+        <div class="seta">▼</div>
+        <canvas id="wheel" width="320" height="320"></canvas>
+      </div>
+      <button id="btnGirar" class="btn principal" disabled>PREENCHA TODOS OS DADOS</button>
+      <div id="resultado" class="resultado">Seu prêmio aparecerá aqui.</div>
+    </section>
+
+    <section class="card avaliacao">
+      <h2>⭐ Avalie sua roupa/atendimento</h2>
+
+      <form id="formAvaliacao">
+        <label>Nome e sobrenome *</label>
+        <input type="text" id="nome" placeholder="Ex: Maria Silva" required />
+
+        <label>Telefone *</label>
+        <input type="tel" id="telefone" placeholder="Ex: 34998607006" required />
+
+        <label>Categoria *</label>
+        <select id="categoria" required>
+          <option value="">Selecione</option>
+          <option value="Excelente">Excelente</option>
+          <option value="Ótimo">Ótimo</option>
+          <option value="Bom">Bom</option>
+          <option value="Baixo">Baixo</option>
+          <option value="Ruim">Ruim</option>
+        </select>
+
+        <label>Estrelas *</label>
+        <div class="estrelas" id="estrelas">
+          <span data-star="1">★</span>
+          <span data-star="2">★</span>
+          <span data-star="3">★</span>
+          <span data-star="4">★</span>
+          <span data-star="5">★</span>
+        </div>
+        <input type="hidden" id="nota" required />
+
+        <label>Comentário *</label>
+        <textarea id="comentario" rows="5" placeholder="Escreva o que achou da roupa ou do atendimento..." required></textarea>
+
+        <button type="submit" id="btnEnviarAvaliacao" class="btn principal hidden" disabled>ENVIAR AVALIAÇÃO</button>
+      </form>
+      <p id="status" class="status"></p>
+    </section>
+
+    <section class="card lista lista-minha">
+      <h2>Seu comentário</h2>
+      <p class="sub-lista">Quando você enviar sua avaliação, ela aparecerá aqui para você visualizar sempre que entrar novamente.</p>
+      <div id="meuComentarioLista" class="comentariosLista">
+        <p class="vazio">Digite seu telefone para localizar seu comentário.</p>
+      </div>
+    </section>
+
+    <section class="card lista lista-publica">
+      <h2>Comentários dos clientes</h2>
+      <p class="sub-lista">Aqui aparece a avaliação pública: nome, estrelas, categoria e comentário.</p>
+      <div id="comentariosLista" class="comentariosLista">
+        <p class="vazio">Nenhum comentário ainda.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="agendaModal" class="modal hidden">
+    <div class="modal-card agenda-modal-card">
+      <button id="btnFecharAgenda" class="fechar" type="button">×</button>
+      <h2>📅 Fazer agendamento</h2>
+      <p id="dataAgendaEscolhida" class="agenda-data-escolhida"></p>
+      <form id="formAgenda">
+        <label>Nome e sobrenome *</label>
+        <input type="text" id="agendaNome" placeholder="Ex: Maria Silva" required />
+        <label>Telefone com DDD *</label>
+        <input type="tel" id="agendaTelefone" placeholder="Ex: 34998607006" required />
+        <label>Quantidade aproximada de peças</label>
+        <input type="number" id="agendaPecas" min="1" max="999" placeholder="Ex: 20" />
+        <label>Endereço</label>
+        <input type="text" id="agendaEndereco" placeholder="Rua, número e bairro" />
+        <label>Observações</label>
+        <textarea id="agendaObservacoes" rows="3" placeholder="Ex: buscar as roupas no período da tarde"></textarea>
+        <button type="submit" id="btnConfirmarAgenda" class="btn principal">CONFIRMAR AGENDAMENTO</button>
+      </form>
+      <p id="agendaModalStatus" class="status-agenda"></p>
+    </div>
+  </div>
+
+  <div id="perfilClienteModal" class="modal hidden">
+    <div class="modal-card perfil-cliente-card">
+      <button id="btnFecharPerfilCliente" class="fechar" type="button">×</button>
+      <h2>Perfil público do cliente</h2>
+      <p class="admin-info">Todos os registros públicos encontrados. Telefone e ID permanecem ocultos.</p>
+      <div id="perfilClienteConteudo"></div>
+    </div>
+  </div>
+
+  <div id="adminModal" class="modal hidden">
+    <div class="modal-card">
+      <button id="btnFecharAdmin" class="fechar">×</button>
+      <h2>🔐 Painel ADM</h2>
+      <p class="admin-info">Entre com o e-mail e senha cadastrados no Firebase Authentication.</p>
+
+      <div id="adminLogin">
+        <label>E-mail ADM</label>
+        <input type="email" id="loginAdmin" placeholder="Ex: admin@passadoria.com" autocomplete="username" />
+        <label>Senha ADM</label>
+        <input type="password" id="senhaAdmin" placeholder="Digite sua senha" autocomplete="current-password" />
+        <button id="btnEntrarAdmin" class="btn principal">ENTRAR NO ADM</button>
+        <button id="btnRecuperarSenha" class="btn secundario" type="button">RECUPERAR SENHA</button>
+        <p id="adminErro" class="erro-admin"></p>
+      </div>
+
+      <div id="adminPainel" class="hidden">
+        <p>ADM conectado: <strong id="adminUsuarioLogado"></strong></p>
+        <p>Promoção atual: <strong id="promoAtualTexto">carregando...</strong></p>
+        <p>Total de giros nesta promoção: <strong id="totalGirosTexto">0</strong></p>
+        <p>Total de avaliações salvas: <strong id="totalAvaliacoesTexto">0</strong></p>
+        <p>Total de visualizações do site: <strong id="totalVisualizacoesTexto">0</strong></p>
+
+        <button id="btnNovaPromocao" class="btn principal">NOVA PROMOÇÃO</button>
+        <button id="btnLimparPromocao" class="btn perigo">LIMPAR GIROS DA PROMOÇÃO ATUAL</button>
+        <button id="btnVerAgendamentos" class="btn secundario">📅 VER AGENDAMENTOS</button>
+        <button id="btnAtualizarAgendamentos" class="btn secundario">🔄 ATUALIZAR LISTA</button>
+        <button id="btnVerAvaliacoes" class="btn secundario">VER AVALIAÇÕES</button>
+        <button id="btnVerGiros" class="btn secundario">VER LISTA DE GIROS</button>
+        <button id="btnVerNotificacoes" class="btn secundario">🔔 VER NOTIFICAÇÕES</button>
+        <button id="btnExportarPDF" class="btn secundario">COMPARTILHAR WHATSAPP</button>
+        <button id="btnExcluirComentarios" class="btn perigo">EXCLUIR COMENTÁRIOS</button>
+        <button id="btnSairAdmin" class="btn perigo">SAIR DO ADM</button>
+
+        <div class="agenda-resumo-adm">
+          <div><span>Total ativos</span><strong id="totalAgendamentosAdm">0</strong></div>
+          <div><span>Hoje</span><strong id="agendamentosHojeAdm">0</strong></div>
+          <div><span>Amanhã</span><strong id="agendamentosAmanhaAdm">0</strong></div>
+          <div><span>Próximos</span><strong id="proximosAgendamentosAdm">0</strong></div>
+          <div><span>Concluídos</span><strong id="concluidosAgendamentosAdm">0</strong></div>
+          <div><span>Cancelados</span><strong id="canceladosAgendamentosAdm">0</strong></div>
+        </div>
+        <div class="agenda-filtros-adm">
+          <div class="agenda-busca-linha"><input id="buscarAgendamentoAdm" type="search" placeholder="🔍 Nome, telefone, data ou endereço" /><button id="btnBuscarAgendamentos" type="button">BUSCAR</button></div>
+          <select id="filtroAgendamentoAdm">
+            <option value="todos">Todos</option>
+            <option value="hoje">Hoje</option>
+            <option value="amanha">Amanhã</option>
+            <option value="semana">Esta semana</option>
+            <option value="agendado">Agendados</option>
+            <option value="confirmado">Confirmados</option>
+            <option value="em_atendimento">Em atendimento</option>
+            <option value="concluido">Concluídos</option>
+            <option value="faltou">Não compareceram</option>
+            <option value="cancelado">Cancelados</option>
+          </select>
+          <input id="dataInicioAgendamentoAdm" type="date" aria-label="Data inicial" />
+          <input id="dataFimAgendamentoAdm" type="date" aria-label="Data final" />
+          <select id="ordenarAgendamentoAdm" aria-label="Ordenação">
+            <option value="data_asc">Data mais próxima</option>
+            <option value="data_desc">Data mais distante</option>
+            <option value="novo">Reserva mais nova</option>
+            <option value="antigo">Reserva mais antiga</option>
+            <option value="nome">Nome A–Z</option>
+          </select>
+          <button id="btnLimparBuscaAgendamentos" type="button" class="btn secundario">LIMPAR PESQUISA</button>
+        </div>
+        <p class="aviso-admin">Nova promoção libera todos os usuários para girar novamente e mantém o histórico antigo salvo.</p>
+        <div id="adminAgendamentos" class="admin-lista hidden"></div>
+        <div id="adminNotificacoes" class="admin-lista hidden"></div>
+        <div id="adminGiros" class="admin-lista hidden"></div>
+        <div id="adminAvaliacoes" class="admin-lista hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="app.js?v=23"></script>
+</body>
+</html>
