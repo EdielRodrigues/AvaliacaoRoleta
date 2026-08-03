@@ -1710,6 +1710,7 @@ formAgenda?.addEventListener("submit", async (event) => {
   const btn = document.getElementById("btnConfirmarAgenda");
   if (btn) { btn.disabled = true; btn.textContent = "VERIFICANDO..."; }
   let motivoFalha = "";
+  let agendamentoFoiSalvo = false;
   try {
     // Cada telefone só pode manter um agendamento ativo em todo o calendário.
     const todos = await obterTodosAgendamentos();
@@ -1744,9 +1745,10 @@ formAgenda?.addEventListener("submit", async (event) => {
     });
     if (!resultadoTransacao.committed) {
       if (agendaModalStatus) agendaModalStatus.textContent = motivoFalha === "duplicado" ? "⚠️ Este telefone já possui agendamento nessa data." : "❌ As 4 vagas desse dia acabaram de ser preenchidas.";
-      await carregarAgendaMes();
+      try { await carregarAgendaMes(); } catch (e) { console.warn("Agenda não atualizou após bloqueio:", e); }
       return;
     }
+    agendamentoFoiSalvo = true;
     const registroConfirmado = {
       nome,
       telefone: mascararTelefone(telefone),
@@ -1768,12 +1770,36 @@ formAgenda?.addEventListener("submit", async (event) => {
       meuAgendamentoPainel.innerHTML = montarResumoMeuAgendamento(registroConfirmado);
     }
     if (btn) { btn.disabled = true; btn.textContent = "AGENDAMENTO CONFIRMADO"; }
-    await carregarAgendaMes();
+    try { await carregarAgendaMes(); } catch (e) { console.warn("Agendamento salvo, mas o calendário não atualizou:", e); }
   } catch (error) {
-    console.error("Erro ao salvar agendamento:", error);
-    if (agendaModalStatus) agendaModalStatus.textContent = "❌ Erro ao salvar o agendamento. Confira a internet e as regras do Firebase.";
+    console.error("Erro no fluxo do agendamento:", error);
+
+    // Em alguns celulares a gravação termina corretamente, mas uma atualização de tela
+    // feita logo depois falha. Antes de mostrar erro, confirmamos diretamente no Firebase.
+    try {
+      const confirmacao = await db.ref(`agendamentos/${dataAgendaSelecionada}/${telefone}`).once("value");
+      if (confirmacao.exists()) {
+        agendamentoFoiSalvo = true;
+        const salvo = confirmacao.val() || {};
+        telefoneAgendaConsultado = telefone;
+        if (agendaModalStatus) {
+          agendaModalStatus.innerHTML = `<div class="agenda-confirmacao-modal">${montarResumoMeuAgendamento(salvo)}</div>`;
+        }
+        if (statusAgenda) statusAgenda.textContent = `✅ ${salvo.nome || nome}, sua reserva foi confirmada.`;
+        if (meuAgendamentoPainel) {
+          meuAgendamentoPainel.classList.remove("hidden");
+          meuAgendamentoPainel.innerHTML = montarResumoMeuAgendamento(salvo);
+        }
+        if (btn) { btn.disabled = true; btn.textContent = "AGENDAMENTO CONFIRMADO"; }
+      } else if (agendaModalStatus) {
+        agendaModalStatus.textContent = "❌ Não foi possível confirmar o agendamento. Tente novamente.";
+      }
+    } catch (confirmError) {
+      console.error("Falha ao confirmar gravação:", confirmError);
+      if (agendaModalStatus) agendaModalStatus.textContent = "❌ Não foi possível confirmar o agendamento. Tente novamente.";
+    }
   } finally {
-    if (btn && btn.textContent !== "AGENDAMENTO CONFIRMADO") { btn.disabled = false; btn.textContent = "CONFIRMAR AGENDAMENTO"; }
+    if (btn && !agendamentoFoiSalvo && btn.textContent !== "AGENDAMENTO CONFIRMADO") { btn.disabled = false; btn.textContent = "CONFIRMAR AGENDAMENTO"; }
   }
 });
 
@@ -2108,3 +2134,559 @@ db.ref("agendamentos").on("value", () => {
 });
 carregarAgendaMes();
 
+
+
+// ================= AGENDA ADM V27 — BUSCA RECONSTRUÍDA =================
+// Este módulo lê diretamente: agendamentos/AAAA-MM-DD/TELEFONE/dados.
+// Ele não depende dos filtros antigos para localizar nome ou telefone.
+(function instalarBuscaAgendaV27(){
+  const listaEl = document.getElementById("adminAgendamentos");
+  const buscaEl = document.getElementById("buscarAgendamentoAdm");
+  const btnBuscar = document.getElementById("btnBuscarAgendamentos");
+  const btnVer = document.getElementById("btnVerAgendamentos");
+  const btnAtualizar = document.getElementById("btnAtualizarAgendamentos");
+  const btnLimpar = document.getElementById("btnLimparBuscaAgendamentos");
+  if (!listaEl) return;
+
+  function textoBuscaV27(valor){
+    return String(valor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  }
+
+  async function lerAgendaDiretoV27(){
+    const snap = await db.ref("agendamentos").once("value");
+    const raiz = snap.val() || {};
+    const registros = [];
+    Object.entries(raiz).forEach(([dataKey, clientes]) => {
+      if (!clientes || typeof clientes !== "object") return;
+      Object.entries(clientes).forEach(([telefoneKey, dadosBrutos]) => {
+        if (!dadosBrutos || typeof dadosBrutos !== "object") return;
+        const d = dadosBrutos;
+        const telefoneOriginal = limparTelefone(d.telefoneOriginal || d.telefone || telefoneKey);
+        registros.push({
+          ...d,
+          dataAgenda: normalizarDataAgenda(d.dataAgenda || d.data || d.dia, dataKey) || dataKey,
+          diaKey: dataKey,
+          telefoneKey,
+          telefoneOriginal: telefoneOriginal || limparTelefone(telefoneKey),
+          nome: String(d.nome || d.nomeCompleto || d.cliente || "Cliente"),
+          status: String(d.status || "agendado"),
+          indiceFirebase: `agendamentos/${dataKey}/${telefoneKey}`
+        });
+      });
+    });
+    return registros;
+  }
+
+  function filtrarV27(registros){
+    const termoOriginal = String(buscaEl?.value || "").trim();
+    const termo = textoBuscaV27(termoOriginal);
+    const numero = limparTelefone(termoOriginal);
+    const filtro = document.getElementById("filtroAgendamentoAdm")?.value || "todos";
+    const inicio = document.getElementById("dataInicioAgendamentoAdm")?.value || "";
+    const fim = document.getElementById("dataFimAgendamentoAdm")?.value || "";
+    const ordem = document.getElementById("ordenarAgendamentoAdm")?.value || "data_asc";
+
+    const agora = new Date();
+    const hoje = chaveDataAgenda(agora.getFullYear(), agora.getMonth(), agora.getDate());
+    const amanhaD = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()+1);
+    const amanha = chaveDataAgenda(amanhaD.getFullYear(), amanhaD.getMonth(), amanhaD.getDate());
+    const fimSemD = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()+6);
+    const fimSem = chaveDataAgenda(fimSemD.getFullYear(), fimSemD.getMonth(), fimSemD.getDate());
+
+    let resultado = registros.filter((r) => {
+      const data = String(r.dataAgenda || r.diaKey || "");
+      const dataBR = /^\d{4}-\d{2}-\d{2}$/.test(data) ? data.split("-").reverse().join("/") : data;
+      const telCampo = limparTelefone(r.telefoneOriginal || r.telefone || "");
+      const telIndice = limparTelefone(r.telefoneKey || "");
+      const alvo = textoBuscaV27([
+        r.nome, r.telefone, telCampo, telIndice, r.telefoneKey,
+        data, dataBR, r.endereco, r.observacoes, r.pecas,
+        r.status, r.indiceFirebase
+      ].join(" "));
+
+      if (termo) {
+        const porTexto = alvo.includes(termo);
+        const porNumero = numero && (telCampo.includes(numero) || telIndice.includes(numero));
+        return porTexto || porNumero;
+      }
+
+      if (inicio && data < inicio) return false;
+      if (fim && data > fim) return false;
+      if (filtro === "hoje" && data !== hoje) return false;
+      if (filtro === "amanha" && data !== amanha) return false;
+      if (filtro === "semana" && !(data >= hoje && data <= fimSem)) return false;
+      if (["agendado","confirmado","em_atendimento","concluido","faltou","cancelado"].includes(filtro) && r.status !== filtro) return false;
+      return true;
+    });
+
+    resultado.sort((a,b) => {
+      if (ordem === "data_desc") return String(b.dataAgenda).localeCompare(String(a.dataAgenda));
+      if (ordem === "novo") return Number(b.timestamp||0)-Number(a.timestamp||0);
+      if (ordem === "antigo") return Number(a.timestamp||0)-Number(b.timestamp||0);
+      if (ordem === "nome") return String(a.nome).localeCompare(String(b.nome), "pt-BR");
+      return String(a.dataAgenda).localeCompare(String(b.dataAgenda));
+    });
+    return resultado;
+  }
+
+  function cardV27(i){
+    const data = String(i.dataAgenda || i.diaKey || "");
+    const dataBR = /^\d{4}-\d{2}-\d{2}$/.test(data) ? data.split("-").reverse().join("/") : data;
+    const tel = limparTelefone(i.telefoneOriginal || i.telefone || i.telefoneKey || "");
+    const nome = String(i.nome || "Cliente");
+    const status = String(i.status || "agendado").replace(/[^a-z_]/gi, "") || "agendado";
+    const whats = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(`Olá ${nome}, falando sobre seu agendamento na Passadoria para ${dataBR}.`)}` : "";
+    return `<article class="admin-item agenda-admin-item status-${safe(status)}">
+      <div class="agenda-admin-topo"><strong>📅 ${safe(dataBR || "Data não informada")}</strong><span>${safe(rotuloStatusAgenda(status))}</span></div>
+      <h3>${safe(nome)}</h3>
+      <p><strong>📞 Telefone:</strong> ${safe(tel || "Não informado")}</p>
+      ${i.pecas ? `<p><strong>🧺 Peças:</strong> ${safe(i.pecas)}</p>` : ""}
+      ${i.endereco ? `<p><strong>📍 Endereço:</strong> ${safe(i.endereco)}</p>` : ""}
+      ${i.observacoes ? `<p><strong>📝 Observações:</strong> ${safe(i.observacoes)}</p>` : ""}
+      <p><strong>🕒 Criado em:</strong> ${safe(dataHoraReserva(i))}</p>
+      <p class="indice-registro"><strong>Índice:</strong> ${safe(i.indiceFirebase)}</p>
+      <div class="agenda-contato-acoes">
+        ${tel ? `<a href="tel:${tel}">📞 Ligar</a><a href="${whats}" target="_blank" rel="noopener">💬 WhatsApp</a>` : ""}
+      </div>
+      <div class="agenda-admin-acoes">
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','confirmado')">Confirmar</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','em_atendimento')">Em atendimento</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','concluido')">Concluído</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','faltou')">Não veio</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','cancelado')">Cancelar</button>
+        <button class="excluir" type="button" onclick="excluirAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}')">Excluir</button>
+      </div>
+    </article>`;
+  }
+
+  async function executarBuscaV27({rolar=false}={}){
+    listaEl.classList.remove("hidden");
+    listaEl.innerHTML = '<div class="admin-ajuda-pdf">⏳ Lendo todos os agendamentos diretamente do Firebase...</div>';
+    try {
+      const todos = await lerAgendaDiretoV27();
+      const encontrados = filtrarV27(todos);
+      if (!todos.length) {
+        listaEl.innerHTML = '<div class="vazio"><strong>📭 A pasta agendamentos está vazia.</strong></div>';
+      } else if (!encontrados.length) {
+        listaEl.innerHTML = `<div class="admin-ajuda-pdf">📚 ${todos.length} registro(s) lido(s) do Firebase.</div><div class="vazio"><strong>🔎 Nenhum resultado para esta pesquisa.</strong><br><small>Toque em LIMPAR PESQUISA para exibir todos.</small></div>`;
+      } else {
+        listaEl.innerHTML = `<div class="admin-ajuda-pdf">✅ ${encontrados.length} de ${todos.length} registro(s) encontrado(s).</div>${encontrados.map(cardV27).join("")}`;
+      }
+      if (rolar) setTimeout(() => listaEl.scrollIntoView({behavior:"smooth", block:"start"}), 100);
+    } catch (erro) {
+      console.error("AGENDA V27:", erro);
+      listaEl.innerHTML = `<div class="vazio"><strong>❌ Erro ao ler agendamentos.</strong><br><small>${safe(erro?.message || erro)}</small></div>`;
+    }
+  }
+
+  window.carregarAgendamentosAdmin = () => executarBuscaV27();
+
+  // Captura antes dos listeners antigos e garante uma única ação visível.
+  btnBuscar?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const filtro = document.getElementById("filtroAgendamentoAdm");
+    const inicio = document.getElementById("dataInicioAgendamentoAdm");
+    const fim = document.getElementById("dataFimAgendamentoAdm");
+    if (filtro) filtro.value = "todos";
+    if (inicio) inicio.value = "";
+    if (fim) fim.value = "";
+    executarBuscaV27({rolar:true});
+  }, true);
+
+  buscaEl?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      executarBuscaV27({rolar:true});
+    }
+  }, true);
+
+  btnVer?.addEventListener("click", () => {
+    listaEl.classList.remove("hidden");
+    executarBuscaV27({rolar:true});
+  }, true);
+  btnAtualizar?.addEventListener("click", () => executarBuscaV27({rolar:true}), true);
+  btnLimpar?.addEventListener("click", () => {
+    if (buscaEl) buscaEl.value = "";
+    setTimeout(() => executarBuscaV27({rolar:true}), 0);
+  }, true);
+
+  // Mostra a lista automaticamente ao entrar no painel.
+  db.ref("agendamentos").on("value", () => {
+    if (!document.getElementById("adminPainel")?.classList.contains("hidden")) executarBuscaV27();
+  });
+})();
+
+// ================= V28 — DUAS BUSCAS DE AGENDAMENTO RECONSTRUÍDAS =================
+// Corrige: (1) consulta do cliente abaixo da agenda e (2) pesquisa/lista no ADM.
+(function instalarBuscasAgendaV28(){
+  const somenteDigitos = (v) => String(v || '').replace(/\D/g, '');
+  const semAcento = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+  async function lerTodosV28(){
+    const snap = await db.ref('agendamentos').once('value');
+    const raiz = snap.val() || {};
+    const lista = [];
+    Object.keys(raiz).forEach((dataKey) => {
+      const grupo = raiz[dataKey];
+      if (!grupo || typeof grupo !== 'object') return;
+      Object.keys(grupo).forEach((telefoneKey) => {
+        const d = grupo[telefoneKey];
+        if (!d || typeof d !== 'object') return;
+        const telefoneOriginal = somenteDigitos(d.telefoneOriginal || d.celular || d.phone || telefoneKey || d.telefone);
+        lista.push({
+          ...d,
+          diaKey: dataKey,
+          telefoneKey,
+          dataAgenda: normalizarDataAgenda(d.dataAgenda || d.data || d.dia, dataKey) || dataKey,
+          nome: String(d.nome || d.nomeCompleto || d.cliente || 'Cliente'),
+          telefoneOriginal: telefoneOriginal || somenteDigitos(telefoneKey),
+          status: String(d.status || 'agendado'),
+          indiceFirebase: `agendamentos/${dataKey}/${telefoneKey}`
+        });
+      });
+    });
+    return lista;
+  }
+
+  function substituirElemento(id){
+    const antigo = document.getElementById(id);
+    if (!antigo || !antigo.parentNode) return antigo;
+    const novo = antigo.cloneNode(true);
+    antigo.parentNode.replaceChild(novo, antigo);
+    return novo;
+  }
+
+  // ---------- CONSULTA DO CLIENTE ----------
+  const campoCliente = substituirElemento('consultarAgendaTelefone');
+  const botaoCliente = substituirElemento('btnConsultarAgenda');
+  const painelCliente = document.getElementById('meuAgendamentoPainel');
+
+  async function consultarClienteV28(){
+    const telefone = somenteDigitos(campoCliente?.value);
+    if (!painelCliente) return;
+    painelCliente.classList.remove('hidden');
+    if (telefone.length < 10) {
+      painelCliente.innerHTML = '<p>⚠️ Digite o telefone completo com DDD.</p>';
+      return;
+    }
+    painelCliente.innerHTML = '<p>⏳ Buscando seu agendamento...</p>';
+    try {
+      const todos = await lerTodosV28();
+      const encontrados = todos.filter((r) => {
+        const peloIndice = somenteDigitos(r.telefoneKey) === telefone;
+        const peloCampo = somenteDigitos(r.telefoneOriginal || r.telefone) === telefone;
+        return (peloIndice || peloCampo) && !['cancelado','concluido','faltou'].includes(r.status);
+      }).sort((a,b) => String(a.dataAgenda).localeCompare(String(b.dataAgenda)) || Number(b.timestamp||0)-Number(a.timestamp||0));
+
+      if (!encontrados.length) {
+        painelCliente.innerHTML = '<p>📭 Nenhum agendamento ativo encontrado para este telefone.</p>';
+        return;
+      }
+      painelCliente.innerHTML = encontrados.map(montarResumoMeuAgendamento).join('<hr class="agenda-separador">');
+      telefoneAgendaConsultado = telefone;
+      await carregarAgendaMes();
+      painelCliente.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (erro) {
+      console.error('CONSULTA CLIENTE V28:', erro);
+      painelCliente.innerHTML = `<p>❌ Não foi possível buscar agora.<br><small>${safe(erro?.message || erro)}</small></p>`;
+    }
+  }
+  botaoCliente?.addEventListener('click', consultarClienteV28);
+  campoCliente?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); consultarClienteV28(); } });
+
+  // ---------- PESQUISA E LISTA DO ADM ----------
+  const campoAdm = substituirElemento('buscarAgendamentoAdm');
+  const botaoAdm = substituirElemento('btnBuscarAgendamentos');
+  const botaoVer = substituirElemento('btnVerAgendamentos');
+  const botaoAtualizar = substituirElemento('btnAtualizarAgendamentos');
+  const botaoLimpar = substituirElemento('btnLimparBuscaAgendamentos');
+  const listaAdm = document.getElementById('adminAgendamentos');
+
+  function cardAdmV28(i){
+    const data = String(i.dataAgenda || i.diaKey || '');
+    const dataBR = /^\d{4}-\d{2}-\d{2}$/.test(data) ? data.split('-').reverse().join('/') : data;
+    const tel = somenteDigitos(i.telefoneOriginal || i.telefoneKey || i.telefone);
+    const nome = String(i.nome || 'Cliente');
+    const status = String(i.status || 'agendado').replace(/[^a-z_]/gi, '') || 'agendado';
+    const whats = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(`Olá ${nome}, falando sobre seu agendamento na Passadoria para ${dataBR}.`)}` : '';
+    return `<article class="admin-item agenda-admin-item status-${safe(status)}">
+      <div class="agenda-admin-topo"><strong>📅 ${safe(dataBR || 'Data não informada')}</strong><span>${safe(rotuloStatusAgenda(status))}</span></div>
+      <h3>${safe(nome)}</h3>
+      <p><strong>📞 Telefone:</strong> ${safe(tel || 'Não informado')}</p>
+      ${i.pecas ? `<p><strong>🧺 Peças:</strong> ${safe(i.pecas)}</p>` : ''}
+      ${i.endereco ? `<p><strong>📍 Endereço:</strong> ${safe(i.endereco)}</p>` : ''}
+      ${i.observacoes ? `<p><strong>📝 Observações:</strong> ${safe(i.observacoes)}</p>` : ''}
+      <p><strong>🕒 Criado em:</strong> ${safe(dataHoraReserva(i))}</p>
+      <p class="indice-registro"><strong>Índice Firebase:</strong> ${safe(i.indiceFirebase)}</p>
+      <div class="agenda-contato-acoes">${tel ? `<a href="tel:${tel}">📞 Ligar</a><a href="${whats}" target="_blank" rel="noopener">💬 WhatsApp</a>` : ''}</div>
+      <div class="agenda-admin-acoes">
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','confirmado')">Confirmar</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','em_atendimento')">Em atendimento</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','concluido')">Concluído</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','faltou')">Não veio</button>
+        <button type="button" onclick="alterarStatusAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}','cancelado')">Cancelar</button>
+        <button class="excluir" type="button" onclick="excluirAgendamento('${safe(i.diaKey)}','${safe(i.telefoneKey)}')">Excluir</button>
+      </div>
+    </article>`;
+  }
+
+  async function buscarAdmV28({mostrarTodos=false, rolar=true}={}){
+    if (!listaAdm) return;
+    listaAdm.classList.remove('hidden');
+    listaAdm.innerHTML = '<div class="admin-ajuda-pdf">⏳ Buscando diretamente em agendamentos/data/telefone...</div>';
+    try {
+      const todos = await lerTodosV28();
+      const original = String(campoAdm?.value || '').trim();
+      const termo = semAcento(original);
+      const numero = somenteDigitos(original);
+      let encontrados = todos;
+
+      if (!mostrarTodos && (termo || numero)) {
+        encontrados = todos.filter((r) => {
+          const data = String(r.dataAgenda || r.diaKey || '');
+          const dataBR = /^\d{4}-\d{2}-\d{2}$/.test(data) ? data.split('-').reverse().join('/') : data;
+          const telIndice = somenteDigitos(r.telefoneKey);
+          const telCampo = somenteDigitos(r.telefoneOriginal || r.telefone);
+          const texto = semAcento([r.nome, data, dataBR, r.endereco, r.observacoes, r.status, r.pecas, r.indiceFirebase, telIndice, telCampo].join(' '));
+          return (termo && texto.includes(termo)) || (numero && (telIndice.includes(numero) || telCampo.includes(numero)));
+        });
+      }
+
+      encontrados.sort((a,b) => String(a.dataAgenda).localeCompare(String(b.dataAgenda)) || String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+      if (!todos.length) {
+        listaAdm.innerHTML = '<div class="vazio"><strong>📭 Nenhum dado existe na pasta agendamentos.</strong></div>';
+      } else if (!encontrados.length) {
+        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">📚 ${todos.length} registro(s) lido(s) do Firebase.</div><div class="vazio"><strong>🔎 Nenhum resultado encontrado.</strong><br><small>Pesquisa feita em nome, telefone, índice, data, endereço, observações e status.</small></div>`;
+      } else {
+        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">✅ ${encontrados.length} de ${todos.length} registro(s) encontrado(s).</div>${encontrados.map(cardAdmV28).join('')}`;
+      }
+      if (rolar) setTimeout(() => listaAdm.scrollIntoView({behavior:'smooth', block:'start'}), 80);
+    } catch (erro) {
+      console.error('BUSCA ADM V28:', erro);
+      listaAdm.innerHTML = `<div class="vazio"><strong>❌ Erro ao ler a pasta agendamentos.</strong><br><small>${safe(erro?.message || erro)}</small></div>`;
+    }
+  }
+
+  window.carregarAgendamentosAdmin = () => buscarAdmV28({mostrarTodos: !String(campoAdm?.value || '').trim(), rolar:false});
+  botaoAdm?.addEventListener('click', (e) => { e.preventDefault(); buscarAdmV28({mostrarTodos:false}); });
+  campoAdm?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); buscarAdmV28({mostrarTodos:false}); } });
+  botaoVer?.addEventListener('click', () => { if (campoAdm) campoAdm.value=''; buscarAdmV28({mostrarTodos:true}); });
+  botaoAtualizar?.addEventListener('click', () => buscarAdmV28({mostrarTodos: !String(campoAdm?.value || '').trim()}));
+  botaoLimpar?.addEventListener('click', () => { if (campoAdm) campoAdm.value=''; buscarAdmV28({mostrarTodos:true}); });
+
+  db.ref('agendamentos').on('value', () => {
+    if (!document.getElementById('adminPainel')?.classList.contains('hidden') && listaAdm && !listaAdm.classList.contains('hidden')) {
+      buscarAdmV28({mostrarTodos: !String(campoAdm?.value || '').trim(), rolar:false});
+    }
+  });
+})();
+
+// ================= V29 — BUSCAS DE AGENDAMENTO COM LEITURA GARANTIDA =================
+// Usa o SDK do Firebase com limite de tempo e, se necessário, leitura REST direta.
+(function instalarBuscasAgendaV29(){
+  const digits = (v) => String(v || '').replace(/\D/g, '');
+  const norm = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const htmlSafe = (v) => typeof safe === 'function' ? safe(v) : String(v || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function cloneById(id){
+    const el = document.getElementById(id);
+    if (!el || !el.parentNode) return el;
+    const novo = el.cloneNode(true);
+    el.parentNode.replaceChild(novo, el);
+    return novo;
+  }
+
+  async function lerRaizAgendamentosV29(){
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Tempo limite do Firebase SDK')), 5500));
+    try {
+      const snap = await Promise.race([db.ref('agendamentos').once('value'), timeout]);
+      return snap?.val?.() || {};
+    } catch (erroSdk) {
+      console.warn('V29: usando leitura REST de contingência.', erroSdk);
+      const base = String(firebaseConfig.databaseURL || '').replace(/\/$/, '');
+      const resposta = await fetch(`${base}/agendamentos.json?ts=${Date.now()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {'Accept':'application/json'}
+      });
+      if (!resposta.ok) throw new Error(`Firebase REST respondeu ${resposta.status}`);
+      return (await resposta.json()) || {};
+    }
+  }
+
+  function achatarAgendamentosV29(raiz){
+    const lista = [];
+    Object.entries(raiz || {}).forEach(([dataKey, grupo]) => {
+      if (!grupo || typeof grupo !== 'object') return;
+      Object.entries(grupo).forEach(([telefoneKey, bruto]) => {
+        if (!bruto || typeof bruto !== 'object') return;
+        const telefoneOriginal = digits(bruto.telefoneOriginal || bruto.celular || bruto.phone || telefoneKey || bruto.telefone);
+        const dataAgenda = /^\d{4}-\d{2}-\d{2}$/.test(String(bruto.dataAgenda || ''))
+          ? String(bruto.dataAgenda)
+          : (/^\d{4}-\d{2}-\d{2}$/.test(dataKey) ? dataKey : String(bruto.dataAgenda || bruto.data || dataKey || ''));
+        lista.push({
+          ...bruto,
+          diaKey: dataKey,
+          telefoneKey,
+          dataAgenda,
+          nome: String(bruto.nome || bruto.nomeCompleto || bruto.cliente || 'Cliente'),
+          telefoneOriginal: telefoneOriginal || digits(telefoneKey),
+          status: String(bruto.status || 'agendado').toLowerCase(),
+          indiceFirebase: `agendamentos/${dataKey}/${telefoneKey}`
+        });
+      });
+    });
+    return lista;
+  }
+
+  async function lerTodosV29(){
+    return achatarAgendamentosV29(await lerRaizAgendamentosV29());
+  }
+
+  function dataBR(v){
+    const s = String(v || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.split('-').reverse().join('/') : s;
+  }
+
+  function cardClienteV29(r){
+    const status = String(r.status || 'agendado').replace(/[^a-z_]/gi, '') || 'agendado';
+    const rotulo = typeof rotuloStatusAgenda === 'function' ? rotuloStatusAgenda(status) : status;
+    const criado = typeof dataHoraReserva === 'function' ? dataHoraReserva(r) : String(r.criadoEm || '');
+    const data = dataBR(r.dataAgenda || r.diaKey);
+    const tel = digits(r.telefoneOriginal || r.telefoneKey || r.telefone);
+    const nome = String(r.nome || 'Cliente');
+    return `<article class="meu-agendamento-card cliente-status-${htmlSafe(status)}">
+      <div class="meu-agendamento-topo">
+        <div class="meu-agendamento-data">
+          <span class="meu-agendamento-icone">📅</span>
+          <div><small>Data agendada</small><strong>${htmlSafe(data || 'Não informada')}</strong></div>
+        </div>
+        <span class="meu-agendamento-status">${htmlSafe(rotulo)}</span>
+      </div>
+      <div class="meu-agendamento-cliente">
+        <span class="avatar-agendamento">👤</span>
+        <div><small>Cliente</small><h3>${htmlSafe(nome)}</h3></div>
+      </div>
+      <div class="meu-agendamento-grid">
+        <div class="agendamento-dado"><span>📞</span><div><small>Telefone</small><strong>${htmlSafe(tel || 'Não informado')}</strong></div></div>
+        ${r.pecas ? `<div class="agendamento-dado"><span>🧺</span><div><small>Quantidade</small><strong>${htmlSafe(r.pecas)} peças</strong></div></div>` : ''}
+        ${r.endereco ? `<div class="agendamento-dado agendamento-dado-largo"><span>📍</span><div><small>Endereço</small><strong>${htmlSafe(r.endereco)}</strong></div></div>` : ''}
+        ${r.observacoes ? `<div class="agendamento-dado agendamento-dado-largo"><span>📝</span><div><small>Observações</small><strong>${htmlSafe(r.observacoes)}</strong></div></div>` : ''}
+        ${criado ? `<div class="agendamento-dado agendamento-dado-largo"><span>🕒</span><div><small>Registrado em</small><strong>${htmlSafe(criado)}</strong></div></div>` : ''}
+      </div>
+      <div class="agendamento-confirmado-aviso">✅ Reserva localizada e vinculada a este telefone.</div>
+    </article>`;
+  }
+
+  function cardAdmV29(r){
+    const status = String(r.status || 'agendado').replace(/[^a-z_]/gi, '') || 'agendado';
+    const tel = digits(r.telefoneOriginal || r.telefoneKey || r.telefone);
+    const nome = String(r.nome || 'Cliente');
+    const dia = dataBR(r.dataAgenda || r.diaKey);
+    const rotulo = typeof rotuloStatusAgenda === 'function' ? rotuloStatusAgenda(status) : status;
+    const criado = typeof dataHoraReserva === 'function' ? dataHoraReserva(r) : String(r.criadoEm || '');
+    const whats = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(`Olá ${nome}, falando sobre seu agendamento na Passadoria para ${dia}.`)}` : '';
+    return `<article class="admin-item agenda-admin-item status-${htmlSafe(status)}">
+      <div class="agenda-admin-topo"><strong>📅 ${htmlSafe(dia || 'Data não informada')}</strong><span>${htmlSafe(rotulo)}</span></div>
+      <h3>${htmlSafe(nome)}</h3>
+      <p><strong>📞 Telefone:</strong> ${htmlSafe(tel || 'Não informado')}</p>
+      ${r.pecas ? `<p><strong>🧺 Peças:</strong> ${htmlSafe(r.pecas)}</p>` : ''}
+      ${r.endereco ? `<p><strong>📍 Endereço:</strong> ${htmlSafe(r.endereco)}</p>` : ''}
+      ${r.observacoes ? `<p><strong>📝 Observações:</strong> ${htmlSafe(r.observacoes)}</p>` : ''}
+      ${criado ? `<p><strong>🕒 Criado em:</strong> ${htmlSafe(criado)}</p>` : ''}
+      <p class="indice-registro"><strong>Índice Firebase:</strong> ${htmlSafe(r.indiceFirebase)}</p>
+      <div class="agenda-contato-acoes">${tel ? `<a href="tel:${tel}">📞 Ligar</a><a href="${whats}" target="_blank" rel="noopener">💬 WhatsApp</a>` : ''}</div>
+      <div class="agenda-admin-acoes">
+        <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','confirmado')">Confirmar</button>
+        <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','em_atendimento')">Em atendimento</button>
+        <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','concluido')">Concluído</button>
+        <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','faltou')">Não veio</button>
+        <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','cancelado')">Cancelar</button>
+        <button class="excluir" type="button" onclick="excluirAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}')">Excluir</button>
+      </div>
+    </article>`;
+  }
+
+  // Consulta do cliente
+  const campoCliente = cloneById('consultarAgendaTelefone');
+  const btnCliente = cloneById('btnConsultarAgenda');
+  const painelCliente = document.getElementById('meuAgendamentoPainel');
+
+  async function consultarCliente(){
+    const telefone = digits(campoCliente?.value);
+    if (!painelCliente) return;
+    painelCliente.classList.remove('hidden');
+    if (telefone.length < 10) {
+      painelCliente.innerHTML = '<p>⚠️ Digite o telefone completo com DDD.</p>';
+      return;
+    }
+    painelCliente.innerHTML = '<p>⏳ Consultando o Firebase...</p>';
+    try {
+      const todos = await lerTodosV29();
+      const encontrados = todos.filter(r => {
+        const telIndice = digits(r.telefoneKey);
+        const telCampo = digits(r.telefoneOriginal || r.telefone);
+        return telIndice === telefone || telCampo === telefone;
+      }).sort((a,b) => String(a.dataAgenda).localeCompare(String(b.dataAgenda)));
+      painelCliente.innerHTML = encontrados.length
+        ? `<div class="consulta-resumo">✅ ${encontrados.length} agendamento(s) encontrado(s).</div>${encontrados.map(cardClienteV29).join('')}`
+        : `<p>📭 Nenhum agendamento encontrado para o telefone <strong>${htmlSafe(telefone)}</strong>.</p>`;
+      painelCliente.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (erro) {
+      console.error('V29 consulta cliente:', erro);
+      painelCliente.innerHTML = `<p>❌ Erro ao consultar o Firebase.<br><small>${htmlSafe(erro?.message || erro)}</small></p>`;
+    }
+  }
+  btnCliente?.addEventListener('click', consultarCliente);
+  campoCliente?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); consultarCliente(); } });
+
+  // Lista e busca ADM
+  const campoAdm = cloneById('buscarAgendamentoAdm');
+  const btnAdm = cloneById('btnBuscarAgendamentos');
+  const btnVer = cloneById('btnVerAgendamentos');
+  const btnAtualizar = cloneById('btnAtualizarAgendamentos');
+  const btnLimpar = cloneById('btnLimparBuscaAgendamentos');
+  const listaAdm = document.getElementById('adminAgendamentos');
+
+  async function buscarAdm(mostrarTodos = false){
+    if (!listaAdm) return;
+    listaAdm.classList.remove('hidden');
+    listaAdm.innerHTML = '<div class="admin-ajuda-pdf">⏳ Consultando diretamente a pasta <strong>agendamentos</strong>...</div>';
+    try {
+      const todos = await lerTodosV29();
+      const original = String(campoAdm?.value || '').trim();
+      const termo = norm(original);
+      const numero = digits(original);
+      let encontrados = todos;
+      if (!mostrarTodos && original) {
+        encontrados = todos.filter(r => {
+          const telIndice = digits(r.telefoneKey);
+          const telCampo = digits(r.telefoneOriginal || r.telefone);
+          const texto = norm([r.nome, r.dataAgenda, dataBR(r.dataAgenda), r.endereco, r.observacoes, r.status, r.pecas, r.indiceFirebase, telIndice, telCampo].join(' '));
+          return (numero && (telIndice.includes(numero) || telCampo.includes(numero))) || (termo && texto.includes(termo));
+        });
+      }
+      encontrados.sort((a,b) => String(a.dataAgenda).localeCompare(String(b.dataAgenda)) || String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+      if (!todos.length) {
+        listaAdm.innerHTML = '<div class="vazio">📭 A pasta <strong>agendamentos</strong> está vazia.</div>';
+      } else if (!encontrados.length) {
+        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">📚 ${todos.length} registro(s) lido(s) do Firebase.</div><div class="vazio">🔎 Nenhum registro corresponde a <strong>${htmlSafe(original)}</strong>.</div>`;
+      } else {
+        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">✅ ${encontrados.length} de ${todos.length} registro(s) encontrado(s).</div>${encontrados.map(cardAdmV29).join('')}`;
+      }
+      listaAdm.scrollIntoView({behavior:'smooth', block:'start'});
+    } catch (erro) {
+      console.error('V29 busca ADM:', erro);
+      listaAdm.innerHTML = `<div class="vazio">❌ Não foi possível consultar os agendamentos.<br><small>${htmlSafe(erro?.message || erro)}</small></div>`;
+    }
+  }
+
+  window.carregarAgendamentosAdmin = () => buscarAdm(!String(campoAdm?.value || '').trim());
+  btnAdm?.addEventListener('click', e => { e.preventDefault(); buscarAdm(false); });
+  campoAdm?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); buscarAdm(false); } });
+  btnVer?.addEventListener('click', () => { if (campoAdm) campoAdm.value = ''; buscarAdm(true); });
+  btnAtualizar?.addEventListener('click', () => buscarAdm(!String(campoAdm?.value || '').trim()));
+  btnLimpar?.addEventListener('click', () => { if (campoAdm) campoAdm.value = ''; buscarAdm(true); });
+})();
