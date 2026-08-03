@@ -1770,31 +1770,23 @@ formAgenda?.addEventListener("submit", async (event) => {
       return;
     }
 
-    // 3) Salva diretamente no índice data/telefone. Isso evita o falso erro da transação no nó inteiro.
+    // 3) Salva diretamente no índice data/telefone.
+    // O próprio await set() só termina quando o Firebase confirma a gravação.
     if (btn) btn.textContent = "SALVANDO...";
     await db.ref(caminhoRegistro).set(registro);
 
-    // 4) Confirma a gravação antes de exibir o resultado.
-    const confirmado = await db.ref(caminhoRegistro).once("value");
-    if (!confirmado.exists()) throw new Error("Registro não encontrado após a gravação.");
-
-    mostrarConfirmacao(confirmado.val() || registro);
+    // 4) Mostra sucesso imediatamente após a confirmação do set().
+    // Não fazemos uma segunda leitura, pois ela podia falhar ou demorar
+    // mesmo depois de o registro já ter sido salvo, causando mensagem falsa de erro.
+    mostrarConfirmacao(registro);
     try { await carregarAgendaMes(); } catch (e) { console.warn("Agendamento salvo; calendário será atualizado depois:", e); }
   } catch (error) {
-    console.error("Erro ao salvar agendamento:", error);
-
-    // Última conferência: se o registro estiver no banco, nunca mostramos erro falso.
-    try {
-      const confirmado = await db.ref(caminhoRegistro).once("value");
-      if (confirmado.exists()) {
-        mostrarConfirmacao(confirmado.val() || registro);
-      } else if (agendaModalStatus) {
-        const detalhe = error?.code === "PERMISSION_DENIED" ? " Confira as regras de escrita em agendamentos." : " Confira sua conexão e tente novamente.";
-        agendaModalStatus.textContent = `❌ O agendamento não foi gravado.${detalhe}`;
-      }
-    } catch (confirmError) {
-      console.error("Falha na conferência final:", confirmError);
-      if (agendaModalStatus) agendaModalStatus.textContent = "❌ Não foi possível acessar o Firebase agora. Tente novamente em alguns segundos.";
+    console.error("Erro real ao salvar agendamento:", error);
+    if (agendaModalStatus) {
+      const detalhe = error?.code === "PERMISSION_DENIED"
+        ? "Confira as regras de escrita da pasta agendamentos."
+        : "Confira sua conexão e tente novamente.";
+      agendaModalStatus.textContent = `❌ O agendamento não foi salvo. ${detalhe}`;
     }
   } finally {
     if (btn && !salvou) { btn.disabled = false; btn.textContent = "CONFIRMAR AGENDAMENTO"; }
