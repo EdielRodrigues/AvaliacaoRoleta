@@ -934,3 +934,51 @@ html { scroll-behavior: smooth; }
   .meu-agendamento-grid{grid-template-columns:1fr}
   .agendamento-dado-largo{grid-column:auto}
 }
+
+/* ===== V35: detalhes das roupas acima da agenda ===== */
+.btn-detalhes-roupas {
+  margin-top:14px;
+  border:1px solid #facc15;
+  background:linear-gradient(135deg,#facc15,#eab308);
+  color:#111827;
+  border-radius:14px;
+  padding:13px 18px;
+  font-weight:950;
+  cursor:pointer;
+  box-shadow:0 8px 22px rgba(250,204,21,.18);
+}
+.btn-detalhes-roupas:active { transform:scale(.98); }
+.detalhes-roupas-card { max-width:620px; max-height:88vh; overflow-y:auto; }
+.detalhes-roupas-card h2 { color:#facc15; margin-right:45px; }
+.detalhes-intro { color:#d1d5db; line-height:1.5; }
+.roupas-grade { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:16px 0; }
+.roupas-grade > div { background:#111827; border:1px solid #374151; border-radius:14px; padding:13px; }
+.roupas-grade strong { display:block; color:#facc15; margin-bottom:6px; }
+.roupas-grade span { color:#d1d5db; font-size:13px; line-height:1.4; }
+.aviso-cabides { background:rgba(250,204,21,.12); border:1px solid rgba(250,204,21,.55); border-radius:14px; padding:14px; margin:15px 0; }
+.aviso-cabides strong { color:#facc15; }
+.aviso-cabides p { margin:8px 0 0; color:#f3f4f6; line-height:1.45; }
+.modelo-observacao { background:rgba(34,197,94,.10); border:1px solid rgba(34,197,94,.45); border-radius:14px; padding:14px; }
+.modelo-observacao strong { color:#22c55e; }
+.modelo-observacao p { color:#d1d5db; line-height:1.45; }
+.modelo-observacao .btn { margin-top:8px; }
+@media(max-width:600px){
+  .roupas-grade { grid-template-columns:1fr; }
+  .detalhes-roupas-card { max-height:92vh; }
+  .btn-detalhes-roupas { width:100%; }
+}
+
+/* V36 - botão de ligação funcional no Android/PWA */
+.agenda-contato-acoes .btn-ligar-cliente {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid rgba(250,204,21,.65);
+  border-radius: 10px;
+  background: #172033;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+.agenda-confirmacao-modal strong { color: #22c55e; font-size: 17px; }

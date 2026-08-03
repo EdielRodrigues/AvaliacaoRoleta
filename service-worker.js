@@ -1,4 +1,4 @@
-const CACHE_NAME = "passadoria-v33";
+const CACHE_NAME = 'passadoria-v36-final';
 const APP_SHELL = [
   './',
   './index.html',

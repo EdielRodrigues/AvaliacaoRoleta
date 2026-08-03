@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Passadoria Ediel & Jéssica</title>
-  <link rel="manifest" href="./manifest.json?v=13" />
+  <link rel="manifest" href="./manifest.json?v=14" />
   <meta name="theme-color" content="#facc15" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-title" content="Passadoria" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=17" />
+  <link rel="stylesheet" href="style.css?v=18" />
 </head>
 <body>
   <header class="site-header">
@@ -48,6 +48,7 @@
         <span class="section-kicker">AGENDA DA PASSADORIA</span>
         <h2>Escolha o dia da sua reserva</h2>
         <p>Cada dia aceita até 4 clientes. Toque em uma data com vaga, informe seu nome e telefone e confirme a reserva.</p>
+        <button id="btnVisualizarDetalhesRoupas" type="button" class="btn-detalhes-roupas">👕 VISUALIZAR DETALHES</button>
       </div>
       <div class="agenda-controles">
         <button id="mesAnterior" class="btn-mes" type="button" aria-label="Mês anterior">‹</button>
@@ -153,6 +154,38 @@
     </section>
   </main>
 
+  <div id="detalhesRoupasModal" class="modal hidden">
+    <div class="modal-card detalhes-roupas-card">
+      <button id="btnFecharDetalhesRoupas" class="fechar" type="button">×</button>
+      <h2>👕 Detalhes das roupas</h2>
+      <p class="detalhes-intro">Antes de agendar, confira as principais peças e informe na observação como deseja recebê-las.</p>
+
+      <div class="roupas-grade">
+        <div><strong>👔 Camisa social</strong><span>Pode ser entregue passada e colocada no cabide.</span></div>
+        <div><strong>👕 Camiseta</strong><span>Pode ser dobrada ou colocada no cabide, conforme sua preferência.</span></div>
+        <div><strong>👚 Blusa / blusinha</strong><span>Informe se deseja dobrada ou no cabide.</span></div>
+        <div><strong>👗 Vestido</strong><span>Recomendado enviar um cabide individual para cada vestido.</span></div>
+        <div><strong>🧥 Blazer</strong><span>Envie um cabide individual para cada peça.</span></div>
+        <div><strong>🤵 Paletó</strong><span>Envie um cabide individual para cada peça.</span></div>
+        <div><strong>🩱 Macacão</strong><span>Informe se deseja no cabide; envie um cabide individual.</span></div>
+        <div><strong>👖 Calça</strong><span>Pode ser dobrada ou colocada em cabide apropriado.</span></div>
+        <div><strong>👘 Saia</strong><span>Pode ser dobrada ou enviada com cabide de presilha.</span></div>
+        <div><strong>🩳 Shorts / bermuda</strong><span>Normalmente entregues dobrados.</span></div>
+      </div>
+
+      <div class="aviso-cabides">
+        <strong>📌 Importante sobre os cabides</strong>
+        <p>Para toda peça que você quiser receber no cabide, envie <b>1 cabide individual para cada peça</b>. Exemplo: 5 camisas no cabide = envie 5 cabides.</p>
+      </div>
+
+      <div class="modelo-observacao">
+        <strong>📝 Escreva na observação do agendamento</strong>
+        <p>Informe a quantidade de cada tipo de roupa e quais peças devem voltar no cabide.</p>
+        <button id="btnUsarModeloObservacao" type="button" class="btn principal">USAR MODELO NA OBSERVAÇÃO</button>
+      </div>
+    </div>
+  </div>
+
   <div id="agendaModal" class="modal hidden">
     <div class="modal-card agenda-modal-card">
       <button id="btnFecharAgenda" class="fechar" type="button">×</button>
@@ -168,7 +201,7 @@
         <label>Endereço</label>
         <input type="text" id="agendaEndereco" placeholder="Rua, número e bairro" />
         <label>Observações</label>
-        <textarea id="agendaObservacoes" rows="3" placeholder="Ex: buscar as roupas no período da tarde"></textarea>
+        <textarea id="agendaObservacoes" rows="3" placeholder="Ex: 5 camisas no cabide, 3 vestidos no cabide e demais peças dobradas"></textarea>
         <button type="submit" id="btnConfirmarAgenda" class="btn principal">CONFIRMAR AGENDAMENTO</button>
       </form>
       <p id="agendaModalStatus" class="status-agenda"></p>
@@ -264,6 +297,6 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="app.js?v=27"></script>
+  <script src="app.js?v=35"></script>
 </body>
 </html>
