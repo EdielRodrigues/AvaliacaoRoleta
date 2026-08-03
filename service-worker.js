@@ -1,4 +1,4 @@
-const CACHE_NAME = 'passadoria-v31-card-agendamento';
+const CACHE_NAME = 'passadoria-v32-card-agendamento';
 const APP_SHELL = [
   './',
   './index.html',

@@ -1698,108 +1698,106 @@ document.getElementById("mesSeguinte")?.addEventListener("click", () => { agenda
 
 formAgenda?.addEventListener("submit", async (event) => {
   event.preventDefault();
+
   const nome = document.getElementById("agendaNome")?.value.trim() || "";
   const telefone = limparTelefone(document.getElementById("agendaTelefone")?.value || "");
   const pecas = Number(document.getElementById("agendaPecas")?.value || 0);
   const endereco = document.getElementById("agendaEndereco")?.value.trim() || "";
   const observacoes = document.getElementById("agendaObservacoes")?.value.trim() || "";
+
   if (nome.split(/\s+/).length < 2) return alert("Digite nome e sobrenome.");
   if (telefone.length < 10) return alert("Digite um telefone válido com DDD.");
   if (!dataAgendaSelecionada) return alert("Escolha um dia da agenda.");
 
   const btn = document.getElementById("btnConfirmarAgenda");
   if (btn) { btn.disabled = true; btn.textContent = "VERIFICANDO..."; }
-  let motivoFalha = "";
-  let agendamentoFoiSalvo = false;
+
+  let salvou = false;
+  const caminhoRegistro = `agendamentos/${dataAgendaSelecionada}/${telefone}`;
+  const registro = {
+    nome,
+    telefone: mascararTelefone(telefone),
+    telefoneOriginal: telefone,
+    dataAgenda: dataAgendaSelecionada,
+    pecas: pecas > 0 ? pecas : "",
+    endereco,
+    observacoes,
+    criadoEm: new Date().toLocaleString("pt-BR"),
+    timestamp: firebase.database.ServerValue.TIMESTAMP,
+    status: "agendado"
+  };
+
+  const mostrarConfirmacao = (dados = registro) => {
+    salvou = true;
+    telefoneAgendaConsultado = telefone;
+    if (agendaModalStatus) {
+      agendaModalStatus.innerHTML = `<div class="agenda-confirmacao-modal">${montarResumoMeuAgendamento(dados)}</div>`;
+    }
+    if (statusAgenda) {
+      statusAgenda.textContent = `✅ ${dados.nome || nome}, sua reserva para ${dataAgendaSelecionada.split("-").reverse().join("/")} foi confirmada.`;
+    }
+    if (meuAgendamentoPainel) {
+      meuAgendamentoPainel.classList.remove("hidden");
+      meuAgendamentoPainel.innerHTML = montarResumoMeuAgendamento(dados);
+    }
+    if (btn) { btn.disabled = true; btn.textContent = "AGENDAMENTO CONFIRMADO"; }
+  };
+
   try {
-    // Cada telefone só pode manter um agendamento ativo em todo o calendário.
+    // 1) Impede mais de um agendamento ativo para o mesmo telefone.
     const todos = await obterTodosAgendamentos();
-    const jaPossuiAtivo = todos.some(r => limparTelefone(r.telefoneOriginal || r.telefone) === telefone && !["cancelado","concluido","faltou"].includes(r.status));
+    const jaPossuiAtivo = todos.some((r) =>
+      limparTelefone(r.telefoneOriginal || r.telefone || r.telefoneIndice) === telefone &&
+      !["cancelado", "concluido", "faltou"].includes(String(r.status || "agendado"))
+    );
     if (jaPossuiAtivo) {
       if (agendaModalStatus) agendaModalStatus.textContent = "⚠️ Este telefone já possui um agendamento ativo. Aguarde a conclusão ou o cancelamento para reservar novamente.";
       return;
     }
 
-    if (btn) btn.textContent = "SALVANDO...";
-    const refDia = db.ref(`agendamentos/${dataAgendaSelecionada}`);
-    const resultadoTransacao = await refDia.transaction((atual) => {
-      const registros = registrosDoDia(atual);
-      const existentes = Object.values(registros).filter(Boolean);
-      const duplicado = existentes.some(r => limparTelefone(r.telefoneOriginal) === telefone && r.status !== "cancelado");
-      if (duplicado) { motivoFalha = "duplicado"; return; }
-      const ativos = existentes.filter(r => r.status !== "cancelado").length;
-      if (ativos >= LIMITE_AGENDAMENTOS_DIA) { motivoFalha = "lotado"; return; }
-      registros[telefone] = {
-        nome,
-        telefone: mascararTelefone(telefone),
-        telefoneOriginal: telefone,
-        dataAgenda: dataAgendaSelecionada,
-        pecas: pecas > 0 ? pecas : "",
-        endereco,
-        observacoes,
-        criadoEm: new Date().toLocaleString("pt-BR"),
-        timestamp: firebase.database.ServerValue.TIMESTAMP,
-        status: "agendado"
-      };
-      return registros;
-    });
-    if (!resultadoTransacao.committed) {
-      if (agendaModalStatus) agendaModalStatus.textContent = motivoFalha === "duplicado" ? "⚠️ Este telefone já possui agendamento nessa data." : "❌ As 4 vagas desse dia acabaram de ser preenchidas.";
-      try { await carregarAgendaMes(); } catch (e) { console.warn("Agenda não atualizou após bloqueio:", e); }
+    // 2) Confere as quatro vagas lendo o dia, sem transação no nó-pai.
+    const diaSnap = await db.ref(`agendamentos/${dataAgendaSelecionada}`).once("value");
+    const registrosDia = registrosDoDia(diaSnap.val());
+    const existentes = Object.values(registrosDia).filter(Boolean);
+    const duplicado = existentes.some((r) => limparTelefone(r.telefoneOriginal || r.telefone) === telefone && r.status !== "cancelado");
+    if (duplicado) {
+      if (agendaModalStatus) agendaModalStatus.textContent = "⚠️ Este telefone já possui agendamento nessa data.";
       return;
     }
-    agendamentoFoiSalvo = true;
-    const registroConfirmado = {
-      nome,
-      telefone: mascararTelefone(telefone),
-      telefoneOriginal: telefone,
-      dataAgenda: dataAgendaSelecionada,
-      pecas: pecas > 0 ? pecas : "",
-      endereco,
-      observacoes,
-      criadoEm: new Date().toLocaleString("pt-BR"),
-      status: "agendado"
-    };
-    telefoneAgendaConsultado = telefone;
-    if (agendaModalStatus) {
-      agendaModalStatus.innerHTML = `<div class="agenda-confirmacao-modal">${montarResumoMeuAgendamento(registroConfirmado)}</div>`;
+    const ativos = existentes.filter((r) => r.status !== "cancelado").length;
+    if (ativos >= LIMITE_AGENDAMENTOS_DIA) {
+      if (agendaModalStatus) agendaModalStatus.textContent = "❌ As 4 vagas desse dia já foram preenchidas.";
+      return;
     }
-    if (statusAgenda) statusAgenda.textContent = `✅ ${nome}, sua reserva para ${dataAgendaSelecionada.split("-").reverse().join("/")} foi confirmada.`;
-    if (meuAgendamentoPainel) {
-      meuAgendamentoPainel.classList.remove("hidden");
-      meuAgendamentoPainel.innerHTML = montarResumoMeuAgendamento(registroConfirmado);
-    }
-    if (btn) { btn.disabled = true; btn.textContent = "AGENDAMENTO CONFIRMADO"; }
-    try { await carregarAgendaMes(); } catch (e) { console.warn("Agendamento salvo, mas o calendário não atualizou:", e); }
-  } catch (error) {
-    console.error("Erro no fluxo do agendamento:", error);
 
-    // Em alguns celulares a gravação termina corretamente, mas uma atualização de tela
-    // feita logo depois falha. Antes de mostrar erro, confirmamos diretamente no Firebase.
+    // 3) Salva diretamente no índice data/telefone. Isso evita o falso erro da transação no nó inteiro.
+    if (btn) btn.textContent = "SALVANDO...";
+    await db.ref(caminhoRegistro).set(registro);
+
+    // 4) Confirma a gravação antes de exibir o resultado.
+    const confirmado = await db.ref(caminhoRegistro).once("value");
+    if (!confirmado.exists()) throw new Error("Registro não encontrado após a gravação.");
+
+    mostrarConfirmacao(confirmado.val() || registro);
+    try { await carregarAgendaMes(); } catch (e) { console.warn("Agendamento salvo; calendário será atualizado depois:", e); }
+  } catch (error) {
+    console.error("Erro ao salvar agendamento:", error);
+
+    // Última conferência: se o registro estiver no banco, nunca mostramos erro falso.
     try {
-      const confirmacao = await db.ref(`agendamentos/${dataAgendaSelecionada}/${telefone}`).once("value");
-      if (confirmacao.exists()) {
-        agendamentoFoiSalvo = true;
-        const salvo = confirmacao.val() || {};
-        telefoneAgendaConsultado = telefone;
-        if (agendaModalStatus) {
-          agendaModalStatus.innerHTML = `<div class="agenda-confirmacao-modal">${montarResumoMeuAgendamento(salvo)}</div>`;
-        }
-        if (statusAgenda) statusAgenda.textContent = `✅ ${salvo.nome || nome}, sua reserva foi confirmada.`;
-        if (meuAgendamentoPainel) {
-          meuAgendamentoPainel.classList.remove("hidden");
-          meuAgendamentoPainel.innerHTML = montarResumoMeuAgendamento(salvo);
-        }
-        if (btn) { btn.disabled = true; btn.textContent = "AGENDAMENTO CONFIRMADO"; }
+      const confirmado = await db.ref(caminhoRegistro).once("value");
+      if (confirmado.exists()) {
+        mostrarConfirmacao(confirmado.val() || registro);
       } else if (agendaModalStatus) {
-        agendaModalStatus.textContent = "❌ Não foi possível confirmar o agendamento. Tente novamente.";
+        const detalhe = error?.code === "PERMISSION_DENIED" ? " Confira as regras de escrita em agendamentos." : " Confira sua conexão e tente novamente.";
+        agendaModalStatus.textContent = `❌ O agendamento não foi gravado.${detalhe}`;
       }
     } catch (confirmError) {
-      console.error("Falha ao confirmar gravação:", confirmError);
-      if (agendaModalStatus) agendaModalStatus.textContent = "❌ Não foi possível confirmar o agendamento. Tente novamente.";
+      console.error("Falha na conferência final:", confirmError);
+      if (agendaModalStatus) agendaModalStatus.textContent = "❌ Não foi possível acessar o Firebase agora. Tente novamente em alguns segundos.";
     }
   } finally {
-    if (btn && !agendamentoFoiSalvo && btn.textContent !== "AGENDAMENTO CONFIRMADO") { btn.disabled = false; btn.textContent = "CONFIRMAR AGENDAMENTO"; }
+    if (btn && !salvou) { btn.disabled = false; btn.textContent = "CONFIRMAR AGENDAMENTO"; }
   }
 });
 
