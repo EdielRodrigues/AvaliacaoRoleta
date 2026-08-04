@@ -982,3 +982,22 @@ html { scroll-behavior: smooth; }
   font-size: 15px;
 }
 .agenda-confirmacao-modal strong { color: #22c55e; font-size: 17px; }
+
+
+/* ===== V37: concluir principal e confirmação ===== */
+.agenda-admin-acoes .btn-concluir-principal {
+  background:#facc15 !important;
+  color:#ffffff !important;
+  border:2px solid #fde68a !important;
+  box-shadow:0 8px 20px rgba(250,204,21,.28);
+  font-size:16px;
+  font-weight:900;
+  flex:1 1 100%;
+  order:-1;
+  padding:13px 16px;
+}
+.agenda-admin-acoes .btn-concluir-principal:hover,
+.agenda-admin-acoes .btn-concluir-principal:active {
+  background:#eab308 !important;
+  color:#ffffff !important;
+}

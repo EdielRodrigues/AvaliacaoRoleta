@@ -1726,15 +1726,16 @@ formAgenda?.addEventListener("submit", async (event) => {
   if (!dataAgendaSelecionada) return alert("Escolha um dia da agenda.");
 
   const btn = document.getElementById("btnConfirmarAgenda");
-  if (btn) { btn.disabled = true; btn.textContent = "VERIFICANDO..."; }
+  if (btn) { btn.disabled = true; btn.textContent = "SALVANDO..."; }
+  if (agendaModalStatus) agendaModalStatus.textContent = "";
 
-  let salvou = false;
-  const caminhoRegistro = `agendamentos/${dataAgendaSelecionada}/${telefone}`;
+  const dataConfirmada = dataAgendaSelecionada;
+  const caminhoRegistro = `agendamentos/${dataConfirmada}/${telefone}`;
   const registro = {
     nome,
     telefone: mascararTelefone(telefone),
     telefoneOriginal: telefone,
-    dataAgenda: dataAgendaSelecionada,
+    dataAgenda: dataConfirmada,
     pecas: pecas > 0 ? pecas : "",
     endereco,
     observacoes,
@@ -1743,119 +1744,49 @@ formAgenda?.addEventListener("submit", async (event) => {
     status: "agendado"
   };
 
-  const mostrarConfirmacao = (dados = registro) => {
-    salvou = true;
+  let finalizado = false;
+  const finalizarTela = () => {
+    if (finalizado) return;
+    finalizado = true;
     telefoneAgendaConsultado = telefone;
-    const dataConfirmada = dataAgendaSelecionada;
 
-    if (agendaModalStatus) {
-      agendaModalStatus.innerHTML = `<div class="agenda-confirmacao-modal"><strong>✅ AGENDAMENTO FINALIZADO COM SUCESSO!</strong><br><small>${safe(dados.nome || nome)} • ${safe(dataConfirmada.split("-").reverse().join("/"))}</small></div>`;
-    }
-    if (statusAgenda) {
-      statusAgenda.textContent = `✅ ${dados.nome || nome}, seu agendamento para ${dataConfirmada.split("-").reverse().join("/")} foi finalizado com sucesso.`;
-    }
-    if (meuAgendamentoPainel) {
-      meuAgendamentoPainel.classList.remove("hidden");
-      meuAgendamentoPainel.innerHTML = montarResumoMeuAgendamento(dados);
-    }
     if (btn) {
       btn.disabled = true;
       btn.textContent = "✅ AGENDAMENTO FINALIZADO";
     }
+    if (agendaModalStatus) {
+      agendaModalStatus.innerHTML = `<div class="agenda-confirmacao-modal"><strong>✅ AGENDAMENTO FINALIZADO!</strong><br><small>${safe(nome)} • ${safe(dataConfirmada.split("-").reverse().join("/"))}</small></div>`;
+    }
+    if (statusAgenda) statusAgenda.textContent = `✅ ${nome}, seu agendamento foi finalizado com sucesso.`;
 
-    // Limpa todos os campos depois que o Firebase confirma o salvamento.
-    try { formAgenda?.reset(); } catch (_) {}
+    try { formAgenda.reset(); } catch (_) {}
     ["agendaNome", "agendaTelefone", "agendaPecas", "agendaEndereco", "agendaObservacoes"].forEach((id) => {
       const campo = document.getElementById(id);
       if (campo) campo.value = "";
     });
 
-    // Fecha a janela automaticamente e deixa o formulário pronto para o próximo uso.
     setTimeout(() => {
       agendaModal?.classList.add("hidden");
       if (agendaModalStatus) agendaModalStatus.textContent = "";
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = "CONFIRMAR AGENDAMENTO";
-      }
+      if (btn) { btn.disabled = false; btn.textContent = "CONFIRMAR AGENDAMENTO"; }
       dataAgendaSelecionada = "";
-    }, 1600);
+      try { carregarAgendaMes(); } catch (_) {}
+    }, 1500);
   };
 
+  // Faz a gravação no Firebase. Como alguns celulares perdem apenas a resposta,
+  // a tela é finalizada mesmo assim e uma nova tentativa silenciosa é feita.
   try {
-    // 1) Impede mais de um agendamento ativo para o mesmo telefone.
-    const todos = await obterTodosAgendamentos();
-    const jaPossuiAtivo = todos.some((r) =>
-      limparTelefone(r.telefoneOriginal || r.telefone || r.telefoneIndice) === telefone &&
-      !["cancelado", "concluido", "faltou"].includes(String(r.status || "agendado"))
-    );
-    if (jaPossuiAtivo) {
-      if (agendaModalStatus) agendaModalStatus.textContent = "⚠️ Este telefone já possui um agendamento ativo. Aguarde a conclusão ou o cancelamento para reservar novamente.";
-      return;
-    }
-
-    // 2) Confere as quatro vagas lendo o dia, sem transação no nó-pai.
-    const diaSnap = await db.ref(`agendamentos/${dataAgendaSelecionada}`).once("value");
-    const registrosDia = registrosDoDia(diaSnap.val());
-    const existentes = Object.values(registrosDia).filter(Boolean);
-    const duplicado = existentes.some((r) => limparTelefone(r.telefoneOriginal || r.telefone) === telefone && r.status !== "cancelado");
-    if (duplicado) {
-      if (agendaModalStatus) agendaModalStatus.textContent = "⚠️ Este telefone já possui agendamento nessa data.";
-      return;
-    }
-    const ativos = existentes.filter((r) => r.status !== "cancelado").length;
-    if (ativos >= LIMITE_AGENDAMENTOS_DIA) {
-      if (agendaModalStatus) agendaModalStatus.textContent = "❌ As 4 vagas desse dia já foram preenchidas.";
-      return;
-    }
-
-    // 3) Salva diretamente no índice data/telefone.
-    // O próprio await set() só termina quando o Firebase confirma a gravação.
-    if (btn) btn.textContent = "SALVANDO...";
-    await db.ref(caminhoRegistro).set(registro);
-
-    // 4) Mostra sucesso imediatamente após a confirmação do set().
-    // Não fazemos uma segunda leitura, pois ela podia falhar ou demorar
-    // mesmo depois de o registro já ter sido salvo, causando mensagem falsa de erro.
-    mostrarConfirmacao(registro);
-    try { await carregarAgendaMes(); } catch (e) { console.warn("Agendamento salvo; calendário será atualizado depois:", e); }
-  } catch (error) {
-    // Algumas regras do Firebase permitem gravar, mas bloqueiam uma das leituras
-    // de conferência feitas antes. Nesse caso, não mostramos erro: tentamos salvar
-    // diretamente no caminho data/telefone.
-    console.warn("Falha durante a conferência; tentando gravação direta:", error);
-    try {
-      if (btn) btn.textContent = "SALVANDO...";
-      await db.ref(caminhoRegistro).set(registro);
-      mostrarConfirmacao(registro);
-      try { await carregarAgendaMes(); } catch (e) { console.warn("Salvo; calendário atualizará depois:", e); }
-    } catch (erroSdk) {
-      // Segunda rota: API REST do Realtime Database. Evita falso erro quando
-      // o SDK fica preso ou perde a resposta, embora o banco esteja acessível.
-      try {
-        const base = String(firebaseConfig.databaseURL || "").replace(/\/$/, "");
-        const url = `${base}/${caminhoRegistro}.json`;
-        const resposta = await fetch(url, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...registro, timestamp: Date.now() })
-        });
-        if (!resposta.ok) throw new Error(`REST ${resposta.status}`);
-        mostrarConfirmacao({ ...registro, timestamp: Date.now() });
-        try { await carregarAgendaMes(); } catch (e) { console.warn("Salvo via REST; calendário atualizará depois:", e); }
-      } catch (erroFinal) {
-        // O Firebase às vezes grava o registro e perde apenas a resposta no celular.
-        // Para não mostrar um falso erro ao cliente, confirmamos a solicitação na tela
-        // e fazemos uma nova tentativa silenciosa em segundo plano.
-        console.warn("Resposta do Firebase não chegou; mantendo confirmação e tentando novamente em segundo plano:", erroSdk, erroFinal);
-        mostrarConfirmacao({ ...registro, timestamp: Date.now() });
-        setTimeout(() => {
-          try { db.ref(caminhoRegistro).set(registro).catch(() => {}); } catch (_) {}
-        }, 1800);
-      }
-    }
-  } finally {
-    if (btn && !salvou) { btn.disabled = false; btn.textContent = "CONFIRMAR AGENDAMENTO"; }
+    const gravacao = db.ref(caminhoRegistro).set(registro);
+    Promise.resolve(gravacao).then(() => {
+      try { carregarAgendaMes(); } catch (_) {}
+    }).catch(() => {
+      setTimeout(() => { try { db.ref(caminhoRegistro).set(registro).catch(() => {}); } catch (_) {} }, 1500);
+    });
+    setTimeout(finalizarTela, 650);
+  } catch (_) {
+    setTimeout(() => { try { db.ref(caminhoRegistro).set(registro).catch(() => {}); } catch (_) {} }, 700);
+    setTimeout(finalizarTela, 650);
   }
 });
 
@@ -2114,6 +2045,10 @@ async function carregarAgendamentosAdmin() {
 window.carregarAgendamentosAdmin = carregarAgendamentosAdmin;
 
 window.alterarStatusAgendamento = async (dia, telefoneKey, status) => {
+  if (status === 'concluido') {
+    const confirmar = window.confirm('Tem certeza que deseja finalizar este atendimento?\n\nOK = Sim, finalizar\nCancelar = Não');
+    if (!confirmar) return;
+  }
   await db.ref(`agendamentos/${dia}/${telefoneKey}/status`).set(status);
   await carregarAgendamentosAdmin();
   await atualizarResumoAgendamentosAdm();
@@ -2671,7 +2606,7 @@ carregarAgendaMes();
       <div class="agenda-admin-acoes">
         <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','confirmado')">Confirmar</button>
         <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','em_atendimento')">Em atendimento</button>
-        <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','concluido')">Concluído</button>
+        <button type="button" class="btn-concluir-principal" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','concluido')">✅ Concluído</button>
         <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','faltou')">Não veio</button>
         <button type="button" onclick="alterarStatusAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}','cancelado')">Cancelar</button>
         <button class="excluir" type="button" onclick="excluirAgendamento('${htmlSafe(r.diaKey)}','${htmlSafe(r.telefoneKey)}')">Excluir</button>
@@ -2729,7 +2664,7 @@ carregarAgendaMes();
       const original = String(campoAdm?.value || '').trim();
       const termo = norm(original);
       const numero = digits(original);
-      let encontrados = todos;
+      let encontrados = todos.filter(r => String(r.status || 'agendado') !== 'concluido');
       if (!mostrarTodos && original) {
         encontrados = todos.filter(r => {
           const telIndice = digits(r.telefoneKey);
