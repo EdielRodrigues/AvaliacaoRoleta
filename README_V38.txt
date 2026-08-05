@@ -1,0 +1,1 @@
+V38: telefone com status agendado bloqueia novo agendamento até o ADM confirmar; após confirmado, pode agendar novamente. Curtidas e corações usam automaticamente telefone já informado ou ID persistente do aparelho, sem pedir telefone.

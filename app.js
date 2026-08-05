@@ -668,18 +668,46 @@ function observarReacoesAvaliacao(avaliacaoKey) {
   observadoresReacoes.set(safeKey, { ref, callback });
 }
 
-async function obterTelefoneParaReacao() {
-  const campo = document.getElementById("telefone");
-  let telefone = campo ? limparTelefone(campo.value) : "";
-  if (!telefoneValido(telefone)) {
-    telefone = limparTelefone(prompt("Digite seu telefone com DDD para registrar sua reação:"));
+function salvarIdentificadorReacao(telefone) {
+  const limpo = limparTelefone(telefone);
+  if (telefoneValido(limpo)) {
+    try { localStorage.setItem("telefoneReacao", limpo); } catch (_) {}
+    return limpo;
   }
-  if (!telefoneValido(telefone)) {
-    alert("Digite um telefone válido com DDD.");
-    return null;
-  }
-  return telefone;
+  return "";
 }
+
+function obterIdentificadorAutomaticoReacao() {
+  const campos = ["telefone", "agendaTelefone", "consultarAgendaTelefone", "buscarAgendamentoAdm"];
+  for (const id of campos) {
+    const el = document.getElementById(id);
+    const tel = salvarIdentificadorReacao(el?.value || "");
+    if (tel) return tel;
+  }
+
+  try {
+    const salvo = limparTelefone(localStorage.getItem("telefoneReacao") || "");
+    if (telefoneValido(salvo)) return salvo;
+  } catch (_) {}
+
+  // Quando ainda não existe telefone informado, usa um identificador permanente
+  // deste aparelho. Assim a reação é automática e continua limitada a uma por aparelho.
+  let dispositivo = "";
+  try { dispositivo = limparTelefone(localStorage.getItem("idReacaoDispositivo") || ""); } catch (_) {}
+  if (!telefoneValido(dispositivo)) {
+    dispositivo = "99" + String(Date.now()).slice(-6) + String(Math.floor(Math.random() * 1000)).padStart(3, "0");
+    try { localStorage.setItem("idReacaoDispositivo", dispositivo); } catch (_) {}
+  }
+  return dispositivo;
+}
+
+async function obterTelefoneParaReacao() {
+  return obterIdentificadorAutomaticoReacao();
+}
+
+["telefone", "agendaTelefone", "consultarAgendaTelefone"].forEach((id) => {
+  document.getElementById(id)?.addEventListener("input", (event) => salvarIdentificadorReacao(event.target.value));
+});
 
 async function registrarReacao(avaliacaoKey, tipo, botao) {
   const telefone = await obterTelefoneParaReacao();
@@ -1645,7 +1673,7 @@ function registrosDoDia(valor) {
   return valor;
 }
 function quantidadeAtivosDia(valor) {
-  return Object.values(registrosDoDia(valor)).filter(r => r && r.status !== "cancelado").length;
+  return Object.values(registrosDoDia(valor)).filter(r => r && (r.status || "agendado") === "agendado").length;
 }
 function textoVagas(qtd) {
   const vagas = Math.max(0, LIMITE_AGENDAMENTOS_DIA - qtd);
@@ -1717,6 +1745,7 @@ formAgenda?.addEventListener("submit", async (event) => {
 
   const nome = document.getElementById("agendaNome")?.value.trim() || "";
   const telefone = limparTelefone(document.getElementById("agendaTelefone")?.value || "");
+  salvarIdentificadorReacao(telefone);
   const pecas = Number(document.getElementById("agendaPecas")?.value || 0);
   const endereco = document.getElementById("agendaEndereco")?.value.trim() || "";
   const observacoes = document.getElementById("agendaObservacoes")?.value.trim() || "";
@@ -1891,7 +1920,7 @@ async function consultarMeuAgendamento(telefoneInformado) {
   telefoneAgendaConsultado = telefone;
   const lista = await obterTodosAgendamentos();
   const item = lista
-    .filter(r => limparTelefone(r.telefoneOriginal || r.telefone) === telefone && !["cancelado","concluido","faltou"].includes(r.status || "agendado"))
+    .filter(r => limparTelefone(r.telefoneOriginal || r.telefone) === telefone && (r.status || "agendado") === "agendado")
     .sort((a,b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))[0] || null;
   if (meuAgendamentoPainel) {
     meuAgendamentoPainel.classList.remove("hidden");
@@ -2621,6 +2650,7 @@ carregarAgendaMes();
 
   async function consultarCliente(){
     const telefone = digits(campoCliente?.value);
+    salvarIdentificadorReacao(telefone);
     if (!painelCliente) return;
     painelCliente.classList.remove('hidden');
     if (telefone.length < 10) {
