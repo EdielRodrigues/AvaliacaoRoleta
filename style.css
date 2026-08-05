@@ -1001,3 +1001,30 @@ html { scroll-behavior: smooth; }
   background:#eab308 !important;
   color:#ffffff !important;
 }
+
+/* V39 — painel retrátil de agendamentos no ADM */
+.btn-painel-agenda {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.btn-painel-agenda span {
+  font-size: 1.35em;
+  line-height: 1;
+  font-weight: 900;
+}
+.btn-painel-agenda.painel-aberto {
+  border-color: #ffcc19;
+  box-shadow: 0 0 0 2px rgba(255,204,25,.16);
+}
+.painel-agendamentos-retratil {
+  overflow: visible;
+  margin-top: 14px;
+  animation: abrirPainelAgenda .22s ease-out;
+}
+.painel-agendamentos-retratil.hidden { display: none !important; }
+@keyframes abrirPainelAgenda {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

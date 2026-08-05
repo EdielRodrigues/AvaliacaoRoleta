@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-title" content="Passadoria" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=18" />
+  <link rel="stylesheet" href="style.css?v=39" />
 </head>
 <body>
   <header class="site-header">
@@ -242,7 +242,7 @@
 
         <button id="btnNovaPromocao" class="btn principal">NOVA PROMOÇÃO</button>
         <button id="btnLimparPromocao" class="btn perigo">LIMPAR GIROS DA PROMOÇÃO ATUAL</button>
-        <button id="btnVerAgendamentos" class="btn secundario">📅 VER AGENDAMENTOS</button>
+        <button id="btnVerAgendamentos" class="btn secundario btn-painel-agenda" aria-expanded="false">📅 AGENDAMENTOS <span id="iconePainelAgenda">＋</span></button>
         <button id="btnAtualizarAgendamentos" class="btn secundario">🔄 ATUALIZAR LISTA</button>
         <button id="btnVerAvaliacoes" class="btn secundario">VER AVALIAÇÕES</button>
         <button id="btnVerGiros" class="btn secundario">VER LISTA DE GIROS</button>
@@ -251,6 +251,7 @@
         <button id="btnExcluirComentarios" class="btn perigo">EXCLUIR COMENTÁRIOS</button>
         <button id="btnSairAdmin" class="btn perigo">SAIR DO ADM</button>
 
+        <div id="painelAgendamentosAdm" class="painel-agendamentos-retratil hidden">
         <div class="agenda-resumo-adm">
           <div><span>Total ativos</span><strong id="totalAgendamentosAdm">0</strong></div>
           <div><span>Hoje</span><strong id="agendamentosHojeAdm">0</strong></div>
@@ -285,6 +286,7 @@
           <button id="btnLimparBuscaAgendamentos" type="button" class="btn secundario">LIMPAR PESQUISA</button>
         </div>
         <div id="adminAgendamentos" class="admin-lista agenda-resultados-v27" aria-live="polite"></div>
+        </div>
         <p class="aviso-admin">Nova promoção libera todos os usuários para girar novamente e mantém o histórico antigo salvo.</p>
         <div id="adminNotificacoes" class="admin-lista hidden"></div>
         <div id="adminGiros" class="admin-lista hidden"></div>
@@ -297,6 +299,47 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="app.js?v=35"></script>
+  <script src="app.js?v=39"></script>
+
+  <script>
+  // V39 — painel de agendamentos retrátil no ADM
+  (() => {
+    const painel = document.getElementById('painelAgendamentosAdm');
+    const antigo = document.getElementById('btnVerAgendamentos');
+    if (!painel || !antigo) return;
+
+    // Remove os eventos antigos apenas deste botão e instala o abre/fecha.
+    const botao = antigo.cloneNode(true);
+    antigo.replaceWith(botao);
+    const icone = botao.querySelector('#iconePainelAgenda');
+    const CHAVE = 'painelAgendamentosAdmAberto';
+
+    function aplicar(aberto, carregar = false) {
+      painel.classList.toggle('hidden', !aberto);
+      botao.setAttribute('aria-expanded', aberto ? 'true' : 'false');
+      botao.classList.toggle('painel-aberto', aberto);
+      if (icone) icone.textContent = aberto ? '−' : '＋';
+      localStorage.setItem(CHAVE, aberto ? '1' : '0');
+      if (aberto && carregar && typeof window.carregarAgendamentosAdmin === 'function') {
+        window.carregarAgendamentosAdmin();
+      }
+    }
+
+    aplicar(localStorage.getItem(CHAVE) === '1', false);
+    botao.addEventListener('click', () => {
+      const abrir = painel.classList.contains('hidden');
+      aplicar(abrir, abrir);
+      if (abrir) painel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    // Uma busca ou atualização abre o painel automaticamente.
+    ['btnBuscarAgendamentos','btnAtualizarAgendamentos'].forEach(id => {
+      document.getElementById(id)?.addEventListener('click', () => aplicar(true, false));
+    });
+    document.getElementById('buscarAgendamentoAdm')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') aplicar(true, false);
+    });
+  })();
+  </script>
 </body>
 </html>
