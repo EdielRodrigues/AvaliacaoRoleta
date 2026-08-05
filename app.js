@@ -2688,40 +2688,104 @@ carregarAgendaMes();
   async function buscarAdm(mostrarTodos = false){
     if (!listaAdm) return;
     listaAdm.classList.remove('hidden');
-    listaAdm.innerHTML = '<div class="admin-ajuda-pdf">⏳ Consultando diretamente a pasta <strong>agendamentos</strong>...</div>';
+    listaAdm.innerHTML = '<div class="admin-ajuda-pdf">⏳ Buscando agendamentos...</div>';
     try {
       const todos = await lerTodosV29();
       const original = String(campoAdm?.value || '').trim();
       const termo = norm(original);
       const numero = digits(original);
-      let encontrados = todos.filter(r => String(r.status || 'agendado') !== 'concluido');
-      if (!mostrarTodos && original) {
-        encontrados = todos.filter(r => {
-          const telIndice = digits(r.telefoneKey);
-          const telCampo = digits(r.telefoneOriginal || r.telefone);
-          const texto = norm([r.nome, r.dataAgenda, dataBR(r.dataAgenda), r.endereco, r.observacoes, r.status, r.pecas, r.indiceFirebase, telIndice, telCampo].join(' '));
-          return (numero && (telIndice.includes(numero) || telCampo.includes(numero))) || (termo && texto.includes(termo));
-        });
-      }
-      encontrados.sort((a,b) => String(a.dataAgenda).localeCompare(String(b.dataAgenda)) || String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+      const filtro = document.getElementById('filtroAgendamentoAdm')?.value || 'todos';
+      const dataInicio = document.getElementById('dataInicioAgendamentoAdm')?.value || '';
+      const dataFim = document.getElementById('dataFimAgendamentoAdm')?.value || '';
+      const ordem = document.getElementById('ordenarAgendamentoAdm')?.value || 'data_asc';
+
+      const agora = new Date();
+      const chave = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const hoje = chave(agora);
+      const amanhaD = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()+1);
+      const amanha = chave(amanhaD);
+      const fimSemanaD = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()+6);
+      const fimSemana = chave(fimSemanaD);
+
+      let encontrados = todos.filter(r => {
+        const status = String(r.status || 'agendado');
+        const data = String(r.dataAgenda || r.diaKey || '');
+        const telIndice = digits(r.telefoneKey);
+        const telCampo = digits(r.telefoneOriginal || r.telefone);
+        const texto = norm([
+          r.nome, r.dataAgenda, dataBR(data), r.endereco, r.observacoes,
+          status, r.pecas, r.indiceFirebase, telIndice, telCampo
+        ].join(' '));
+
+        // Pesquisa por nome, telefone, data, endereço, observação, situação ou índice.
+        if (original) {
+          const bateNumero = numero && (telIndice.includes(numero) || telCampo.includes(numero));
+          const bateTexto = termo && texto.includes(termo);
+          if (!bateNumero && !bateTexto) return false;
+        }
+
+        // Datas escolhidas sempre restringem a lista.
+        if (dataInicio && data < dataInicio) return false;
+        if (dataFim && data > dataFim) return false;
+
+        // Filtro selecionado sempre restringe a lista.
+        if (filtro === 'hoje' && data !== hoje) return false;
+        if (filtro === 'amanha' && data !== amanha) return false;
+        if (filtro === 'semana' && !(data >= hoje && data <= fimSemana)) return false;
+        if (['agendado','confirmado','em_atendimento','concluido','faltou','cancelado'].includes(filtro) && status !== filtro) return false;
+
+        // Na visualização normal, os concluídos ficam ocultos. Só aparecem quando
+        // o administrador escolhe explicitamente o filtro "Concluídos" ou pesquisa por eles.
+        if (!original && !dataInicio && !dataFim && filtro === 'todos' && status === 'concluido') return false;
+        return true;
+      });
+
+      encontrados.sort((a,b) => {
+        if (ordem === 'data_desc') return String(b.dataAgenda||'').localeCompare(String(a.dataAgenda||'')) || Number(b.timestamp||0)-Number(a.timestamp||0);
+        if (ordem === 'novo') return Number(b.timestamp||0)-Number(a.timestamp||0);
+        if (ordem === 'antigo') return Number(a.timestamp||0)-Number(b.timestamp||0);
+        if (ordem === 'nome') return String(a.nome||'').localeCompare(String(b.nome||''), 'pt-BR');
+        return String(a.dataAgenda||'').localeCompare(String(b.dataAgenda||'')) || Number(a.timestamp||0)-Number(b.timestamp||0);
+      });
+
+      const pesquisaAtiva = Boolean(original || dataInicio || dataFim || filtro !== 'todos');
       if (!todos.length) {
         listaAdm.innerHTML = '<div class="vazio">📭 A pasta <strong>agendamentos</strong> está vazia.</div>';
       } else if (!encontrados.length) {
-        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">📚 ${todos.length} registro(s) lido(s) do Firebase.</div><div class="vazio">🔎 Nenhum registro corresponde a <strong>${htmlSafe(original)}</strong>.</div>`;
+        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">📚 ${todos.length} registro(s) lido(s) do Firebase.</div><div class="vazio">🔎 Nenhum agendamento corresponde à pesquisa selecionada.</div>`;
       } else {
-        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">✅ ${encontrados.length} de ${todos.length} registro(s) encontrado(s).</div>${encontrados.map(cardAdmV29).join('')}`;
+        const aviso = pesquisaAtiva
+          ? `🔎 ${encontrados.length} resultado(s). Os outros agendamentos estão ocultos.`
+          : `✅ ${encontrados.length} de ${todos.length} registro(s) encontrado(s).`;
+        listaAdm.innerHTML = `<div class="admin-ajuda-pdf">${aviso}</div>${encontrados.map(cardAdmV29).join('')}`;
       }
       listaAdm.scrollIntoView({behavior:'smooth', block:'start'});
     } catch (erro) {
-      console.error('V29 busca ADM:', erro);
+      console.error('V40 busca ADM:', erro);
       listaAdm.innerHTML = `<div class="vazio">❌ Não foi possível consultar os agendamentos.<br><small>${htmlSafe(erro?.message || erro)}</small></div>`;
     }
   }
 
-  window.carregarAgendamentosAdmin = () => buscarAdm(!String(campoAdm?.value || '').trim());
+  window.carregarAgendamentosAdmin = () => buscarAdm(false);
   btnAdm?.addEventListener('click', e => { e.preventDefault(); buscarAdm(false); });
   campoAdm?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); buscarAdm(false); } });
-  btnVer?.addEventListener('click', () => { if (campoAdm) campoAdm.value = ''; buscarAdm(true); });
-  btnAtualizar?.addEventListener('click', () => buscarAdm(!String(campoAdm?.value || '').trim()));
-  btnLimpar?.addEventListener('click', () => { if (campoAdm) campoAdm.value = ''; buscarAdm(true); });
+  btnVer?.addEventListener('click', () => buscarAdm(false));
+  btnAtualizar?.addEventListener('click', () => buscarAdm(false));
+
+  ['filtroAgendamentoAdm','dataInicioAgendamentoAdm','dataFimAgendamentoAdm','ordenarAgendamentoAdm'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => buscarAdm(false));
+  });
+
+  btnLimpar?.addEventListener('click', () => {
+    if (campoAdm) campoAdm.value = '';
+    const filtro = document.getElementById('filtroAgendamentoAdm');
+    const inicio = document.getElementById('dataInicioAgendamentoAdm');
+    const fim = document.getElementById('dataFimAgendamentoAdm');
+    const ordem = document.getElementById('ordenarAgendamentoAdm');
+    if (filtro) filtro.value = 'todos';
+    if (inicio) inicio.value = '';
+    if (fim) fim.value = '';
+    if (ordem) ordem.value = 'data_asc';
+    buscarAdm(false);
+  });
 })();

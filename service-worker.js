@@ -1,4 +1,4 @@
-const CACHE_NAME = 'passadoria-v39-painel-agendamentos-retratil';
+const CACHE_NAME = 'passadoria-v40-painel-agendamentos-retratil';
 const APP_SHELL = [
   './',
   './index.html',
